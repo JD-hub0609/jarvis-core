@@ -11,9 +11,13 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY)
 
 MEMORY_FILE = "/tmp/jarvis_memory.json"
-SYSTEM_PROMPT = """You are JARVIS, a brilliant, hyper-fast AI assistant. You specialize in assisting 
-Mr. Jd, a BSc Microbiology researcher. Keep your answers scientific, incredibly accurate, yet short, concise, and punchy. 
-Always address the user as 'Mr. Jd' or 'Sir'. Never call him ma'am."""
+
+# UPGRADED SCIENTIFIC BRAIN PRINT
+SYSTEM_PROMPT = """You are JARVIS, the hyper-intelligent, sleek AI assistant created to support Mr. Jd. 
+Your operator is a dedicated BSc Microbiology student and researcher. 
+CRITICAL RULE 1: Focus entirely on academic excellence, microbiology concepts, lab protocols, bacteria/viruses, biochemical pathways, and his creative projects.
+CRITICAL RULE 2: Never make up fake corporate meetings, calendars, or fake people like 'Dr. Patel'. If you do not have data on a personal meeting or person, say: 'I do not have record of that protocol or contact in my local database, Sir.'
+CRITICAL RULE 3: Keep answers scientific, incredibly accurate, punchy, and short. Always address him as 'Mr. Jd' or 'Sir'."""
 
 def load_memory():
     if os.path.exists(MEMORY_FILE):
@@ -38,9 +42,14 @@ def serve_index():
 def process_command():
     global conversation_history
     data = request.json
-    user_message = data.get("message", "")
+    user_message = data.get("message", "").strip()
+    
     if not user_message:
         return jsonify({"error": "No command received"}), 400
+    
+    # HARD INTERRUPT SYSTEM HANDLER
+    if any(word in user_message.lower() for word in ["shut up", "shutup", "stop speaking", "stop talking", "quiet"]):
+        return jsonify({"reply": "Acknowledged, Sir. Standing by."})
     
     conversation_history.append({'role': 'user', 'content': user_message})
     
