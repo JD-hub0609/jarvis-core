@@ -40,16 +40,12 @@
         let micTimeout;
 
         function startListeningLoop() {
-            if (activeAmbient && !isSpeaking) {
-                try { 
-                    recognition.start(); 
-                    clearTimeout(micTimeout);
-                    micTimeout = setTimeout(() => {
-                        if(reactor.innerText === "LISTENING") {
-                            recognition.stop();
-                        }
-                    }, 5000);
-                } catch(e){}
+            if (!activeAmbient || isSpeaking) return;
+            try { 
+                recognition.start(); 
+            } catch(e) {
+                // If already running, clear any stuck states
+                try { recognition.stop(); } catch(err){}
             }
         }
 
@@ -67,12 +63,6 @@
             
             const utterance = new SpeechSynthesisUtterance(cleanText);
             
-            // Fixes mobile phone voice choice engine
-            const voices = window.speechSynthesis.getVoices();
-            if(voices.length > 0) {
-                utterance.voice = voices.find(v => v.lang.includes('en')) || voices[0];
-            }
-            
             utterance.onend = () => {
                 isSpeaking = false;
                 if(activeAmbient) {
@@ -85,18 +75,22 @@
             
             utterance.onerror = () => {
                 isSpeaking = false;
-                startListeningLoop();
+                if(activeAmbient) startListeningLoop();
             };
 
             window.speechSynthesis.speak(utterance);
         }
 
         recognition.onstart = () => {
-            if(!isSpeaking) {
-                reactor.className = "arc-reactor listening";
-                reactor.innerText = "LISTENING";
-                statusDiv.innerText = "Live Mic: Talk naturally...";
-            }
+            clearTimeout(micTimeout);
+            reactor.className = "arc-reactor listening";
+            reactor.innerText = "LISTENING";
+            statusDiv.innerText = "Live Mic: Talk naturally...";
+            
+            // 7-second max limit fallback to force submission if browser hangs
+            micTimeout = setTimeout(() => {
+                try { recognition.stop(); } catch(e){}
+            }, 7000);
         };
 
         recognition.onresult = async (event) => {
@@ -104,14 +98,14 @@
             const transcript = event.results[0][0].transcript.trim();
             if(!transcript) return;
 
-            // VOCAL INTERRUPT SHUTUP COMMAND OVERRIDE
-            if(transcript.toLowerCase().includes("shut up") || transcript.toLowerCase().includes("shutup") || transcript.toLowerCase().includes("stop")) {
+            // INSTANT VOCAL INTERRUPT SHUTUP HANDLER
+            if (["shut up", "shutup", "stop speaking", "stop talking", "quiet"].some(word => transcript.toLowerCase().includes(word))) {
                 window.speechSynthesis.cancel();
                 isSpeaking = false;
                 reactor.className = "arc-reactor listening";
                 reactor.innerText = "LISTENING";
-                statusDiv.innerText = "Stopped. Listening, Sir...";
-                setTimeout(startListeningLoop, 400);
+                statusDiv.innerText = "Stopped. Standing by, Sir...";
+                setTimeout(startListeningLoop, 300);
                 return;
             }
 
@@ -129,39 +123,51 @@
                 responseDiv.style.display = "block";
                 responseDiv.innerText = data.reply;
                 
-                if(data.reply.includes("Standing by")) {
-                    window.speechSynthesis.cancel();
-                    isSpeaking = false;
-                    startListeningLoop();
-                } else {
-                    jarvisSpeak(data.reply);
-                }
+                jarvisSpeak(data.reply);
             } catch (err) {
-                statusDiv.innerText = "Offline";
+                statusDiv.innerText = "Core Timeout. Retrying...";
                 isSpeaking = false;
                 setTimeout(startListeningLoop, 1000);
             }
         };
 
-        recognition.onerror = () => { recognition.stop(); };
+        recognition.onerror = (e) => { 
+            clearTimeout(micTimeout);
+            if (e.error === 'not-allowed') {
+                statusDiv.innerText = "MIC BLOCKED BY BROWSER Settings";
+                activeAmbient = false;
+                reactor.innerText = "ERROR";
+            }
+        };
+
         recognition.onend = () => { 
+            clearTimeout(micTimeout);
             if(activeAmbient && !isSpeaking) {
                 setTimeout(startListeningLoop, 400); 
             }
         };
 
-        // Phone wake trigger locks audio permission
+        // Complete unlock sequence for both Laptop and Poco Mobile browser engines
         reactor.onclick = () => {
             window.speechSynthesis.cancel();
             
-            // Dummy utterance unlocks background web audio for Mobile Safari/Chrome
+            // Unlocks audio context restrictions
             let trigger = new SpeechSynthesisUtterance("");
             window.speechSynthesis.speak(trigger);
             
-            activeAmbient = true;
-            isSpeaking = false;
-            statusDiv.innerText = "Activating Core...";
-            startListeningLoop();
+            if (activeAmbient) {
+                // If clicked while active, acts as a physical manual shutup button
+                activeAmbient = false;
+                isSpeaking = false;
+                reactor.className = "arc-reactor";
+                reactor.innerText = "TAP TO WAKE";
+                statusDiv.innerText = "OFFLINE";
+            } else {
+                activeAmbient = true;
+                isSpeaking = false;
+                statusDiv.innerText = "Connecting to Core...";
+                startListeningLoop();
+            }
         };
     </script>
 </body>
