@@ -6,7 +6,7 @@
     <title>JARVIS Mobile Core</title>
     <style>
         body { background: #0a0f1d; color: #00f3ff; font-family: monospace; text-align: center; padding: 20px; }
-        .arc-reactor { width: 140px; height: 140px; border-radius: 50%; border: 4px solid #00f3ff; margin: 40px auto; box-shadow: 0 0 25px #00f3ff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00f3ff; cursor: pointer; }
+        .arc-reactor { width: 140px; height: 140px; border-radius: 50%; border: 4px solid #00f3ff; margin: 40px auto; box-shadow: 0 0 25px #00f3ff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00f3ff; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
         .listening { box-shadow: 0 0 40px #ff0055; border-color: #ff0055; color: #ff0055; }
         .speaking { box-shadow: 0 0 40px #00ff66; border-color: #00ff66; color: #00ff66; }
         #status { font-size: 1.2em; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px;}
@@ -43,13 +43,12 @@
             if (activeAmbient && !isSpeaking) {
                 try { 
                     recognition.start(); 
-                    // Safety check: if mic stays stuck open without a result for 4 seconds, force submit it
                     clearTimeout(micTimeout);
                     micTimeout = setTimeout(() => {
                         if(reactor.innerText === "LISTENING") {
                             recognition.stop();
                         }
-                    }, 4000);
+                    }, 5000);
                 } catch(e){}
             }
         }
@@ -64,8 +63,15 @@
             statusDiv.innerText = "Responding...";
 
             let cleanText = text.replace(/[*#_`\-]/g, ' ');
-            window.speechSynthesis.cancel(); // Clears browser audio stack
+            window.speechSynthesis.cancel(); 
+            
             const utterance = new SpeechSynthesisUtterance(cleanText);
+            
+            // Fixes mobile phone voice choice engine
+            const voices = window.speechSynthesis.getVoices();
+            if(voices.length > 0) {
+                utterance.voice = voices.find(v => v.lang.includes('en')) || voices[0];
+            }
             
             utterance.onend = () => {
                 isSpeaking = false;
@@ -98,6 +104,17 @@
             const transcript = event.results[0][0].transcript.trim();
             if(!transcript) return;
 
+            // VOCAL INTERRUPT SHUTUP COMMAND OVERRIDE
+            if(transcript.toLowerCase().includes("shut up") || transcript.toLowerCase().includes("shutup") || transcript.toLowerCase().includes("stop")) {
+                window.speechSynthesis.cancel();
+                isSpeaking = false;
+                reactor.className = "arc-reactor listening";
+                reactor.innerText = "LISTENING";
+                statusDiv.innerText = "Stopped. Listening, Sir...";
+                setTimeout(startListeningLoop, 400);
+                return;
+            }
+
             statusDiv.innerText = "Thinking...";
             reactor.innerText = "THINKING";
 
@@ -112,7 +129,13 @@
                 responseDiv.style.display = "block";
                 responseDiv.innerText = data.reply;
                 
-                jarvisSpeak(data.reply);
+                if(data.reply.includes("Standing by")) {
+                    window.speechSynthesis.cancel();
+                    isSpeaking = false;
+                    startListeningLoop();
+                } else {
+                    jarvisSpeak(data.reply);
+                }
             } catch (err) {
                 statusDiv.innerText = "Offline";
                 isSpeaking = false;
@@ -123,15 +146,21 @@
         recognition.onerror = () => { recognition.stop(); };
         recognition.onend = () => { 
             if(activeAmbient && !isSpeaking) {
-                setTimeout(startListeningLoop, 300); 
+                setTimeout(startListeningLoop, 400); 
             }
         };
 
+        // Phone wake trigger locks audio permission
         reactor.onclick = () => {
             window.speechSynthesis.cancel();
+            
+            // Dummy utterance unlocks background web audio for Mobile Safari/Chrome
+            let trigger = new SpeechSynthesisUtterance("");
+            window.speechSynthesis.speak(trigger);
+            
             activeAmbient = true;
             isSpeaking = false;
-            statusDiv.innerText = "Activating...";
+            statusDiv.innerText = "Activating Core...";
             startListeningLoop();
         };
     </script>
