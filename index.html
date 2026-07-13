@@ -6,11 +6,14 @@
     <title>JARVIS Mobile Core</title>
     <style>
         body { background: #0a0f1d; color: #00f3ff; font-family: monospace; text-align: center; padding: 20px; }
-        .arc-reactor { width: 140px; height: 140px; border-radius: 50%; border: 4px solid #00f3ff; margin: 40px auto; box-shadow: 0 0 25px #00f3ff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00f3ff; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+        .arc-reactor { width: 130px; height: 130px; border-radius: 50%; border: 4px solid #00f3ff; margin: 30px auto; box-shadow: 0 0 25px #00f3ff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00f3ff; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
         .listening { box-shadow: 0 0 40px #ff0055; border-color: #ff0055; color: #ff0055; }
         .speaking { box-shadow: 0 0 40px #00ff66; border-color: #00ff66; color: #00ff66; }
-        #status { font-size: 1.2em; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px;}
+        #status { font-size: 1.1em; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px;}
         #response { background: rgba(0, 243, 255, 0.05); padding: 15px; border-radius: 8px; max-width: 550px; margin: 20px auto; text-align: left; border: 1px solid #00f3ff; line-height: 1.6; display: none; }
+        .input-container { margin: 20px auto; max-width: 500px; display: flex; gap: 10px; }
+        input[type="text"] { flex: 1; background: #111a30; border: 1px solid #00f3ff; padding: 12px; color: #00f3ff; border-radius: 5px; font-family: monospace; outline: none; }
+        button { background: #00f3ff; color: #0a0f1d; border: none; padding: 12px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -20,6 +23,12 @@
 
     <div class="arc-reactor" id="reactor">TAP TO WAKE</div>
     <div id="status">OFFLINE</div>
+
+    <div class="input-container">
+        <input type="text" id="textInput" placeholder="Type a command to Mr. Jd's Core...">
+        <button id="sendBtn">SEND</button>
+    </div>
+
     <div id="response"></div>
 
     <script>
@@ -27,31 +36,34 @@
         const reactor = document.getElementById('reactor');
         const statusDiv = document.getElementById('status');
         const responseDiv = document.getElementById('response');
+        const textInput = document.getElementById('textInput');
+        const sendBtn = document.getElementById('sendBtn');
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognition = new SpeechRecognition();
+        let recognition = SpeechRecognition ? new SpeechRecognition() : null;
         
-        recognition.continuous = false; 
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
+        if (recognition) {
+            recognition.continuous = false; 
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+        }
 
         let activeAmbient = false;
         let isSpeaking = false;
         let micTimeout;
 
         function startListeningLoop() {
-            if (!activeAmbient || isSpeaking) return;
+            if (!activeAmbient || isSpeaking || !recognition) return;
             try { 
                 recognition.start(); 
             } catch(e) {
-                // If already running, clear any stuck states
                 try { recognition.stop(); } catch(err){}
             }
         }
 
         function jarvisSpeak(text) {
             isSpeaking = true;
-            recognition.stop(); 
+            if (recognition) recognition.stop(); 
             clearTimeout(micTimeout);
             
             reactor.className = "arc-reactor speaking";
@@ -70,6 +82,10 @@
                     reactor.innerText = "LISTENING";
                     statusDiv.innerText = "Listening, Mr. Jd...";
                     startListeningLoop();
+                } else {
+                    reactor.className = "arc-reactor";
+                    reactor.innerText = "TAP TO WAKE";
+                    statusDiv.innerText = "STANDBY";
                 }
             };
             
@@ -81,31 +97,51 @@
             window.speechSynthesis.speak(utterance);
         }
 
-        recognition.onstart = () => {
-            clearTimeout(micTimeout);
-            reactor.className = "arc-reactor listening";
-            reactor.innerText = "LISTENING";
-            statusDiv.innerText = "Live Mic: Talk naturally...";
-            
-            // 7-second max limit fallback to force submission if browser hangs
-            micTimeout = setTimeout(() => {
-                try { recognition.stop(); } catch(e){}
-            }, 7000);
-        };
-
-        recognition.onresult = async (event) => {
-            clearTimeout(micTimeout);
-            const transcript = event.results[0][0].transcript.trim();
-            if(!transcript) return;
-
-            // INSTANT VOCAL INTERRUPT SHUTUP HANDLER
-            if (["shut up", "shutup", "stop speaking", "stop talking", "quiet"].some(word => transcript.toLowerCase().includes(word))) {
-                window.speechSynthesis.cancel();
-                isSpeaking = false;
+        if (recognition) {
+            recognition.onstart = () => {
+                clearTimeout(micTimeout);
                 reactor.className = "arc-reactor listening";
                 reactor.innerText = "LISTENING";
+                statusDiv.innerText = "Live Mic: Talk naturally...";
+                
+                micTimeout = setTimeout(() => {
+                    try { recognition.stop(); } catch(e){}
+                }, 6000);
+            };
+
+            recognition.onresult = async (event) => {
+                clearTimeout(micTimeout);
+                const transcript = event.results[0][0].transcript.trim();
+                if(!transcript) return;
+                executeCommand(transcript);
+            };
+
+            recognition.onerror = (e) => { 
+                clearTimeout(micTimeout);
+                if (e.error === 'not-allowed') {
+                    statusDiv.innerText = "Mic restricted. Keyboard Override active.";
+                }
+            };
+
+            recognition.onend = () => { 
+                clearTimeout(micTimeout);
+                if(activeAmbient && !isSpeaking) {
+                    setTimeout(startListeningLoop, 400); 
+                }
+            };
+        } else {
+            statusDiv.innerText = "Voice engine restricted. Keyboard Mode live.";
+        }
+
+        async function executeCommand(messageText) {
+            if (!messageText) return;
+
+            if (["shut up", "shutup", "stop speaking", "stop talking", "quiet"].some(word => messageText.toLowerCase().includes(word))) {
+                window.speechSynthesis.cancel();
+                isSpeaking = false;
+                reactor.className = "arc-reactor";
+                reactor.innerText = "TAP TO WAKE";
                 statusDiv.innerText = "Stopped. Standing by, Sir...";
-                setTimeout(startListeningLoop, 300);
                 return;
             }
 
@@ -116,7 +152,7 @@
                 const res = await fetch(`${API_URL}/command`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: transcript })
+                    body: JSON.stringify({ message: messageText })
                 });
                 const data = await res.json();
                 
@@ -125,38 +161,37 @@
                 
                 jarvisSpeak(data.reply);
             } catch (err) {
-                statusDiv.innerText = "Core Timeout. Retrying...";
+                statusDiv.innerText = "Connection error.";
                 isSpeaking = false;
-                setTimeout(startListeningLoop, 1000);
+            }
+        }
+
+        // Send Button Trigger
+        sendBtn.onclick = () => {
+            const txt = textInput.value.trim();
+            if(txt) {
+                // Unlock audio track context
+                let trigger = new SpeechSynthesisUtterance("");
+                window.speechSynthesis.speak(trigger);
+                
+                executeCommand(txt);
+                textInput.value = "";
             }
         };
 
-        recognition.onerror = (e) => { 
-            clearTimeout(micTimeout);
-            if (e.error === 'not-allowed') {
-                statusDiv.innerText = "MIC BLOCKED BY BROWSER Settings";
-                activeAmbient = false;
-                reactor.innerText = "ERROR";
+        // Enter key trigger
+        textInput.addEventListener("keyup", (event) => {
+            if (event.key === "Enter") {
+                sendBtn.click();
             }
-        };
+        });
 
-        recognition.onend = () => { 
-            clearTimeout(micTimeout);
-            if(activeAmbient && !isSpeaking) {
-                setTimeout(startListeningLoop, 400); 
-            }
-        };
-
-        // Complete unlock sequence for both Laptop and Poco Mobile browser engines
         reactor.onclick = () => {
             window.speechSynthesis.cancel();
-            
-            // Unlocks audio context restrictions
             let trigger = new SpeechSynthesisUtterance("");
             window.speechSynthesis.speak(trigger);
             
             if (activeAmbient) {
-                // If clicked while active, acts as a physical manual shutup button
                 activeAmbient = false;
                 isSpeaking = false;
                 reactor.className = "arc-reactor";
@@ -165,8 +200,12 @@
             } else {
                 activeAmbient = true;
                 isSpeaking = false;
-                statusDiv.innerText = "Connecting to Core...";
-                startListeningLoop();
+                statusDiv.innerText = "Connecting...";
+                if(recognition) {
+                    startListeningLoop();
+                } else {
+                    statusDiv.innerText = "Keyboard control online.";
+                }
             }
         };
     </script>
