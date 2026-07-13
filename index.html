@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Mobile Core</title>
+    <style>
+        body { background: #0a0f1d; color: #00f3ff; font-family: monospace; text-align: center; padding: 20px; }
+        .arc-reactor { width: 140px; height: 140px; border-radius: 50%; border: 4px solid #00f3ff; margin: 40px auto; box-shadow: 0 0 25px #00f3ff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00f3ff; cursor: pointer; }
+        .listening { box-shadow: 0 0 40px #ff0055; border-color: #ff0055; color: #ff0055; }
+        .speaking { box-shadow: 0 0 40px #00ff66; border-color: #00ff66; color: #00ff66; }
+        #status { font-size: 1.2em; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px;}
+        #response { background: rgba(0, 243, 255, 0.05); padding: 15px; border-radius: 8px; max-width: 550px; margin: 20px auto; text-align: left; border: 1px solid #00f3ff; line-height: 1.6; display: none; }
+    </style>
+</head>
+<body>
+
+    <h1>JARVIS CLOUD TERMINAL</h1>
+    <p>Operator: Mr. Jd Mode</p>
+
+    <div class="arc-reactor" id="reactor">TAP TO WAKE</div>
+    <div id="status">OFFLINE</div>
+    <div id="response"></div>
+
+    <script>
+        const API_URL = window.location.origin;
+        const reactor = document.getElementById('reactor');
+        const statusDiv = document.getElementById('status');
+        const responseDiv = document.getElementById('response');
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = new SpeechRecognition();
+        
+        recognition.continuous = false; 
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        let activeAmbient = false;
+        let isSpeaking = false;
+
+        function startListeningLoop() {
+            if (activeAmbient && !isSpeaking) {
+                try { recognition.start(); } catch(e){}
+            }
+        }
+
+        function jarvisSpeak(text) {
+            isSpeaking = true;
+            recognition.stop(); 
+            
+            reactor.className = "arc-reactor speaking";
+            reactor.innerText = "SPEAKING";
+            statusDiv.innerText = "Responding...";
+
+            let cleanText = text.replace(/[*#_`\-]/g, ' ');
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            window.speechSynthesis.speak(utterance);
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                if(activeAmbient) {
+                    reactor.className = "arc-reactor listening";
+                    reactor.innerText = "LISTENING";
+                    statusDiv.innerText = "Listening, Mr. Jd...";
+                    startListeningLoop();
+                }
+            };
+        }
+
+        recognition.onstart = () => {
+            if(!isSpeaking) {
+                reactor.className = "arc-reactor listening";
+                reactor.innerText = "LISTENING";
+                statusDiv.innerText = "Live Mic: Talk naturally...";
+            }
+        };
+
+        recognition.onresult = async (event) => {
+            const transcript = event.results[0][0].transcript.trim();
+            if(!transcript) return;
+
+            statusDiv.innerText = "Thinking...";
+            reactor.innerText = "THINKING";
+
+            try {
+                const res = await fetch(`${API_URL}/command`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: transcript })
+                });
+                const data = await res.json();
+                
+                responseDiv.style.display = "block";
+                responseDiv.innerText = data.reply;
+                
+                jarvisSpeak(data.reply);
+            } catch (err) {
+                statusDiv.innerText = "Offline";
+                isSpeaking = false;
+                setTimeout(startListeningLoop, 1000);
+            }
+        };
+
+        recognition.onerror = () => { recognition.stop(); };
+        recognition.onend = () => { setTimeout(startListeningLoop, 250); };
+
+        reactor.onclick = () => {
+            window.speechSynthesis.cancel();
+            activeAmbient = true;
+            isSpeaking = false;
+            statusDiv.innerText = "Activating...";
+            startListeningLoop();
+        };
+    </script>
+</body>
+</html>
