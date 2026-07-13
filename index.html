@@ -37,25 +37,36 @@
 
         let activeAmbient = false;
         let isSpeaking = false;
+        let micTimeout;
 
         function startListeningLoop() {
             if (activeAmbient && !isSpeaking) {
-                try { recognition.start(); } catch(e){}
+                try { 
+                    recognition.start(); 
+                    // Safety check: if mic stays stuck open without a result for 4 seconds, force submit it
+                    clearTimeout(micTimeout);
+                    micTimeout = setTimeout(() => {
+                        if(reactor.innerText === "LISTENING") {
+                            recognition.stop();
+                        }
+                    }, 4000);
+                } catch(e){}
             }
         }
 
         function jarvisSpeak(text) {
             isSpeaking = true;
             recognition.stop(); 
+            clearTimeout(micTimeout);
             
             reactor.className = "arc-reactor speaking";
             reactor.innerText = "SPEAKING";
             statusDiv.innerText = "Responding...";
 
             let cleanText = text.replace(/[*#_`\-]/g, ' ');
+            window.speechSynthesis.cancel(); // Clears browser audio stack
             const utterance = new SpeechSynthesisUtterance(cleanText);
-            window.speechSynthesis.speak(utterance);
-
+            
             utterance.onend = () => {
                 isSpeaking = false;
                 if(activeAmbient) {
@@ -65,6 +76,13 @@
                     startListeningLoop();
                 }
             };
+            
+            utterance.onerror = () => {
+                isSpeaking = false;
+                startListeningLoop();
+            };
+
+            window.speechSynthesis.speak(utterance);
         }
 
         recognition.onstart = () => {
@@ -76,6 +94,7 @@
         };
 
         recognition.onresult = async (event) => {
+            clearTimeout(micTimeout);
             const transcript = event.results[0][0].transcript.trim();
             if(!transcript) return;
 
@@ -102,7 +121,11 @@
         };
 
         recognition.onerror = () => { recognition.stop(); };
-        recognition.onend = () => { setTimeout(startListeningLoop, 250); };
+        recognition.onend = () => { 
+            if(activeAmbient && !isSpeaking) {
+                setTimeout(startListeningLoop, 300); 
+            }
+        };
 
         reactor.onclick = () => {
             window.speechSynthesis.cancel();
